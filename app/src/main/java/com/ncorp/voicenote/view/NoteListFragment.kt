@@ -1,23 +1,31 @@
 package com.ncorp.voicenote.view
 
 import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
-import androidx.appcompat.app.AlertDialog
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.room.Room
+import com.ncorp.voicenote.alarm.AlarmReceiver
 import com.ncorp.voicenote.databinding.FragmentNoteListBinding
+import com.ncorp.voicenote.databinding.DialogRecordNameBinding
+import com.ncorp.voicenote.databinding.DialogDeleteConfirmationBinding
 import com.ncorp.voicenote.model.VoiceNote
 import com.ncorp.voicenote.database.AppDatabase
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
@@ -43,6 +51,7 @@ class NoteListFragment : Fragment() {
 	private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 	private val RECORD_AUDIO_PERMISSION_CODE = 101
 	private var recordingStartTime = 0L
+	private val NOTIFICATION_PERMISSION_CODE = 102
 
 	override fun onCreateView(
 		inflater: LayoutInflater, container: ViewGroup?,
@@ -54,21 +63,15 @@ class NoteListFragment : Fragment() {
 
 	override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 		super.onViewCreated(view, savedInstanceState)
-
-		// İzin kontrolü
 		if (!checkAudioPermission()) {
 			requestAudioPermission()
 		}
-
-		// Veritabanı oluşturma
-		db = Room.databaseBuilder(requireContext(), AppDatabase::class.java, "VoiceNotes.db")
-			.build()
-
-		// RecyclerView düzeni ve adaptör
+		if (!checkNotificationPermission()) {
+			requestNotificationPermission()
+		}
+		db = Room.databaseBuilder(requireContext(), AppDatabase::class.java, "VoiceNotes.db").build()
 		binding.recordRecyclerView.layoutManager = LinearLayoutManager(requireContext())
 		getVoiceNotes()
-
-		// Mikrofon butonuna basılı tutulma animasyonu ve kayıt kontrolü
 		binding.micButton.setOnTouchListener { v, event ->
 			when(event.action) {
 				MotionEvent.ACTION_DOWN -> {
@@ -115,7 +118,6 @@ class NoteListFragment : Fragment() {
 		mediaPlayer?.release()
 		mediaPlayer = null
 		progressRunnable?.let { handler.removeCallbacks(it) }
-
 		try {
 			mediaPlayer = MediaPlayer().apply {
 				setDataSource(note.filePath)
@@ -128,7 +130,6 @@ class NoteListFragment : Fragment() {
 					adapter.updateProgress(note.id, 0, note.duration.toInt())
 				}
 			}
-
 			progressRunnable = object : Runnable {
 				override fun run() {
 					val currentPosition = mediaPlayer?.currentPosition ?: 0
@@ -144,8 +145,61 @@ class NoteListFragment : Fragment() {
 	}
 
 	private fun setAlarm(note: VoiceNote) {
-		// AlarmManager kodu buraya gelecek
+		val now = java.util.Calendar.getInstance()
+
+		// Önce tarih seçimi
+		val datePicker = android.app.DatePickerDialog(requireContext(), { _, year, month, dayOfMonth ->
+			// Sonra saat seçimi
+			val timePicker = android.app.TimePickerDialog(requireContext(), { _, hourOfDay, minute ->
+				val calendar = java.util.Calendar.getInstance().apply {
+					set(year, month, dayOfMonth, hourOfDay, minute, 0)
+				}
+
+				if (calendar.timeInMillis <= System.currentTimeMillis()) {
+					Toast.makeText(requireContext(), "Lütfen gelecekte bir zaman seçin", Toast.LENGTH_LONG).show()
+					return@TimePickerDialog
+				}
+
+				val alarmManager = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+					if (!alarmManager.canScheduleExactAlarms()) {
+						val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+						startActivity(intent)
+						Toast.makeText(requireContext(), "Alarm izni gerekli", Toast.LENGTH_LONG).show()
+						return@TimePickerDialog
+					}
+				}
+
+				val intent = Intent(requireContext(), AlarmReceiver::class.java).apply {
+					putExtra("title", note.title)
+					putExtra("filePath", note.filePath)
+				}
+
+				val pendingIntent = PendingIntent.getBroadcast(
+					requireContext(),
+					note.id,
+					intent,
+					PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+				)
+
+				alarmManager.setExact(
+					AlarmManager.RTC_WAKEUP,
+					calendar.timeInMillis,
+					pendingIntent
+				)
+
+				Toast.makeText(requireContext(), "Alarm kuruldu: ${calendar.time}", Toast.LENGTH_SHORT).show()
+
+			}, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true)
+
+			timePicker.show()
+
+		}, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH))
+
+		datePicker.show()
 	}
+
 
 	override fun onDestroyView() {
 		super.onDestroyView()
@@ -184,27 +238,21 @@ class NoteListFragment : Fragment() {
 		val recordingDuration = System.currentTimeMillis() - recordingStartTime
 		if (recordingDuration < 1000) {
 			recorder?.apply {
-				try {
-					stop()
-				} catch (_: Exception) {}
+				try { stop() } catch (_: Exception) {}
 				release()
 			}
 			recorder = null
 			isRecording = false
 			audioFilePath?.let { File(it).delete() }
+			Toast.makeText(requireContext(), "Kayıt çok kısa, kaydedilmedi", Toast.LENGTH_SHORT).show()
 			return
 		}
 
 		try {
-			if (isRecording && recorder != null) {
-				recorder?.stop()
-			}
+			if (isRecording && recorder != null) recorder?.stop()
 		} catch (e: RuntimeException) {
 			e.printStackTrace()
-			audioFilePath?.let { path ->
-				val file = File(path)
-				if (file.exists()) file.delete()
-			}
+			audioFilePath?.let { path -> File(path).takeIf { it.exists() }?.delete() }
 			return
 		} finally {
 			recorder?.release()
@@ -214,29 +262,25 @@ class NoteListFragment : Fragment() {
 
 		audioFilePath?.let { filePath ->
 			val duration = getAudioDuration(filePath)
-			showSaveNameDialog(filePath, duration)  // Kayıt ismini kullanıcıya sor
+			showSaveNameDialog(filePath, duration)
 		}
 	}
 
 	private fun showSaveNameDialog(filePath: String, duration: Long) {
-		val dialogBinding = com.ncorp.voicenote.databinding.DialogRecordNameBinding.inflate(layoutInflater)
+		val dialogBinding = DialogRecordNameBinding.inflate(layoutInflater)
 		val dialog = androidx.appcompat.app.AlertDialog.Builder(requireContext())
 			.setView(dialogBinding.root)
+			.setCancelable(false)
 			.create()
 
-		dialog.show()
-
 		dialogBinding.btnCancelRecordName.setOnClickListener {
-			// İptal edilirse dosyayı sil
-			val file = File(filePath)
-			if (file.exists()) file.delete()
+			File(filePath).takeIf { it.exists() }?.delete()
 			dialog.dismiss()
 		}
 
 		dialogBinding.btnSaveRecordName.setOnClickListener {
 			val enteredName = dialogBinding.editTextRecordName.text.toString().trim()
 			val title = if (enteredName.isNotEmpty()) enteredName else "Kayıt - ${getFormattedCurrentDateTime()}"
-
 			val newNote = VoiceNote(
 				title = title,
 				filePath = filePath,
@@ -247,8 +291,9 @@ class NoteListFragment : Fragment() {
 			saveVoiceNoteToDb(newNote)
 			dialog.dismiss()
 		}
-	}
 
+		dialog.show()
+	}
 
 	private fun getAudioDuration(filePath: String): Long {
 		val player = MediaPlayer()
@@ -264,9 +309,7 @@ class NoteListFragment : Fragment() {
 			db.voiceNoteDao().insert(note)
 				.subscribeOn(Schedulers.io())
 				.observeOn(AndroidSchedulers.mainThread())
-				.subscribe {
-					getVoiceNotes()
-				}
+				.subscribe { getVoiceNotes() }
 		)
 	}
 
@@ -275,8 +318,40 @@ class NoteListFragment : Fragment() {
 	}
 
 	private fun requestAudioPermission() {
-		ActivityCompat.requestPermissions(requireActivity(), arrayOf(Manifest.permission.RECORD_AUDIO), RECORD_AUDIO_PERMISSION_CODE)
+		ActivityCompat.requestPermissions(
+			requireActivity(),
+			arrayOf(Manifest.permission.RECORD_AUDIO),
+			RECORD_AUDIO_PERMISSION_CODE
+		)
 	}
+	private fun checkNotificationPermission(): Boolean {
+		return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			ContextCompat.checkSelfPermission(requireContext(), android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+		} else {
+			true
+		}
+	}
+
+	private fun requestNotificationPermission() {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			ActivityCompat.requestPermissions(
+				requireActivity(),
+				arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+				NOTIFICATION_PERMISSION_CODE
+			)
+		}
+	}
+	override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+		if (requestCode == NOTIFICATION_PERMISSION_CODE) {
+			if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
+				Toast.makeText(requireContext(), "Bildirim izni verildi", Toast.LENGTH_SHORT).show()
+			} else {
+				Toast.makeText(requireContext(), "Bildirim izni reddedildi", Toast.LENGTH_SHORT).show()
+			}
+		}
+	}
+
 
 	private fun stopAudio() {
 		mediaPlayer?.let {
@@ -292,22 +367,18 @@ class NoteListFragment : Fragment() {
 
 	private fun deleteNote(note: VoiceNote) {
 		val dialog = android.app.Dialog(requireContext())
-		val dialogBinding = com.ncorp.voicenote.databinding.DialogDeleteConfirmationBinding.inflate(layoutInflater)
-
+		val dialogBinding = DialogDeleteConfirmationBinding.inflate(layoutInflater)
 		dialog.setContentView(dialogBinding.root)
 		dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
 		dialogBinding.btnConfirm.setOnClickListener {
-			if (mediaPlayer?.isPlaying == true) {
-				stopAudio()
-			}
+			if (mediaPlayer?.isPlaying == true) stopAudio()
 			disposable.add(
 				db.voiceNoteDao().delete(note)
 					.subscribeOn(Schedulers.io())
 					.observeOn(AndroidSchedulers.mainThread())
 					.subscribe {
-						val file = File(note.filePath)
-						if (file.exists()) file.delete()
+						File(note.filePath).takeIf { it.exists() }?.delete()
 						getVoiceNotes()
 					}
 			)
@@ -320,5 +391,4 @@ class NoteListFragment : Fragment() {
 
 		dialog.show()
 	}
-
 }
