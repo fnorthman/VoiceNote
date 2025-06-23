@@ -1,17 +1,20 @@
 package com.ncorp.voicenote.view
 
 import android.Manifest
-import android.app.AlarmManager
-import android.app.PendingIntent
-import android.content.Context
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
+import android.app.TimePickerDialog
 import android.content.Intent
+import java.util.Calendar
+
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.provider.Settings
+import android.provider.AlarmClock
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -22,7 +25,6 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.room.Room
-import com.ncorp.voicenote.alarm.AlarmReceiver
 import com.ncorp.voicenote.databinding.FragmentNoteListBinding
 import com.ncorp.voicenote.databinding.DialogRecordNameBinding
 import com.ncorp.voicenote.databinding.DialogDeleteConfirmationBinding
@@ -52,7 +54,8 @@ class NoteListFragment : Fragment() {
 	private val RECORD_AUDIO_PERMISSION_CODE = 101
 	private var recordingStartTime = 0L
 	private val NOTIFICATION_PERMISSION_CODE = 102
-
+	private var pulseAnimator: ObjectAnimator? = null
+	private var lastPausedPosition = 0
 	override fun onCreateView(
 		inflater: LayoutInflater, container: ViewGroup?,
 		savedInstanceState: Bundle?
@@ -73,15 +76,30 @@ class NoteListFragment : Fragment() {
 		binding.recordRecyclerView.layoutManager = LinearLayoutManager(requireContext())
 		getVoiceNotes()
 		binding.micButton.setOnTouchListener { v, event ->
-			when(event.action) {
+			when (event.action) {
 				MotionEvent.ACTION_DOWN -> {
-					v.animate().scaleX(1.2f).scaleY(1.2f).setDuration(100).start()
+					// Sonsuz tekrar eden kalp atışı animasyonu
+					pulseAnimator = ObjectAnimator.ofPropertyValuesHolder(
+						v,
+						PropertyValuesHolder.ofFloat("scaleX", 1f, 2f, 1f),
+						PropertyValuesHolder.ofFloat("scaleY", 1f, 2f, 1f)
+					).apply {
+						duration = 800
+						repeatCount = ValueAnimator.INFINITE
+						repeatMode = ValueAnimator.RESTART
+						start()
+					}
+
 					v.isPressed = true
 					if (!isRecording) startRecording()
 					true
 				}
 				MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-					v.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+					// Animasyonu durdur ve ölçeği normale döndür
+					pulseAnimator?.cancel()
+					pulseAnimator = null
+					v.animate().scaleX(1f).scaleY(1f).setDuration(200).start()
+
 					v.isPressed = false
 					if (isRecording) stopRecording()
 					true
@@ -89,6 +107,28 @@ class NoteListFragment : Fragment() {
 				else -> false
 			}
 		}
+	}
+	private fun resumeAudio(note: VoiceNote) {
+		mediaPlayer?.let {
+			if (!it.isPlaying) {
+				it.seekTo(lastPausedPosition)
+				it.start()
+				// İlerleme güncellemesini yeniden başlat
+				startProgressUpdater(note)
+			}
+		}
+	}
+
+	private fun startProgressUpdater(note: VoiceNote) {
+		progressRunnable = object : Runnable {
+			override fun run() {
+				val currentPosition = mediaPlayer?.currentPosition ?: 0
+				val duration = mediaPlayer?.duration ?: 1
+				adapter.updateProgress(note.id, currentPosition, duration)
+				handler.postDelayed(this, 500)
+			}
+		}
+		handler.post(progressRunnable!!)
 	}
 
 	private fun getFormattedCurrentDateTime(): String {
@@ -105,9 +145,10 @@ class NoteListFragment : Fragment() {
 					adapter = VoiceNoteAdapter(
 						notes,
 						onPlayClicked = { note -> playAudio(note) },
-						onAlarmClicked = { note -> setAlarm(note) },
+						onAlarmClicked = { note -> setAlarm(note) },  // Burada setAlarm çağrılıyor
 						onStopClicked = { note -> stopAudio() },
-						onDeleteClicked = { note -> deleteNote(note) }
+						onDeleteClicked = { note -> deleteNote(note) } ,
+						onResumeClicked = { note -> resumeAudio(note) }
 					)
 					binding.recordRecyclerView.adapter = adapter
 				}
@@ -145,59 +186,30 @@ class NoteListFragment : Fragment() {
 	}
 
 	private fun setAlarm(note: VoiceNote) {
-		val now = java.util.Calendar.getInstance()
+		val calendar = Calendar.getInstance()
+		val timeSetListener = TimePickerDialog.OnTimeSetListener { _, hourOfDay, minute ->
+			// Alarm Intent oluştur
+			val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+				putExtra(AlarmClock.EXTRA_HOUR, hourOfDay)
+				putExtra(AlarmClock.EXTRA_MINUTES, minute)
+				putExtra(AlarmClock.EXTRA_MESSAGE, "Voice Note Alarm: ${note.title}")
+				putExtra(AlarmClock.EXTRA_SKIP_UI, false) // Kullanıcıya alarmı onaylatır
+			}
 
-		// Önce tarih seçimi
-		val datePicker = android.app.DatePickerDialog(requireContext(), { _, year, month, dayOfMonth ->
-			// Sonra saat seçimi
-			val timePicker = android.app.TimePickerDialog(requireContext(), { _, hourOfDay, minute ->
-				val calendar = java.util.Calendar.getInstance().apply {
-					set(year, month, dayOfMonth, hourOfDay, minute, 0)
-				}
+			if (intent.resolveActivity(requireActivity().packageManager) != null) {
+				startActivity(intent)
+			} else {
+				Toast.makeText(requireContext(), "Alarm uygulaması bulunamadı", Toast.LENGTH_SHORT).show()
+			}
+		}
 
-				if (calendar.timeInMillis <= System.currentTimeMillis()) {
-					Toast.makeText(requireContext(), "Lütfen gelecekte bir zaman seçin", Toast.LENGTH_LONG).show()
-					return@TimePickerDialog
-				}
-
-				val alarmManager = requireContext().getSystemService(Context.ALARM_SERVICE) as AlarmManager
-
-				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-					if (!alarmManager.canScheduleExactAlarms()) {
-						val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-						startActivity(intent)
-						Toast.makeText(requireContext(), "Alarm izni gerekli", Toast.LENGTH_LONG).show()
-						return@TimePickerDialog
-					}
-				}
-
-				val intent = Intent(requireContext(), AlarmReceiver::class.java).apply {
-					putExtra("title", note.title)
-					putExtra("filePath", note.filePath)
-				}
-
-				val pendingIntent = PendingIntent.getBroadcast(
-					requireContext(),
-					note.id,
-					intent,
-					PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-				)
-
-				alarmManager.setExact(
-					AlarmManager.RTC_WAKEUP,
-					calendar.timeInMillis,
-					pendingIntent
-				)
-
-				Toast.makeText(requireContext(), "Alarm kuruldu: ${calendar.time}", Toast.LENGTH_SHORT).show()
-
-			}, now.get(java.util.Calendar.HOUR_OF_DAY), now.get(java.util.Calendar.MINUTE), true)
-
-			timePicker.show()
-
-		}, now.get(java.util.Calendar.YEAR), now.get(java.util.Calendar.MONTH), now.get(java.util.Calendar.DAY_OF_MONTH))
-
-		datePicker.show()
+		TimePickerDialog(
+			requireContext(),
+			timeSetListener,
+			calendar.get(Calendar.HOUR_OF_DAY),
+			calendar.get(Calendar.MINUTE),
+			true // 24 saat formatı kullan
+		).show()
 	}
 
 

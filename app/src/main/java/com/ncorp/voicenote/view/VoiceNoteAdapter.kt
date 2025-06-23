@@ -11,7 +11,8 @@ class VoiceNoteAdapter(
 	private val onPlayClicked: (VoiceNote) -> Unit,
 	private val onAlarmClicked: (VoiceNote) -> Unit,
 	private val onStopClicked: (VoiceNote) -> Unit,   // Stop butonu callback'i
-	private val onDeleteClicked: (VoiceNote) -> Unit  // Silme callback'i
+	private val onDeleteClicked: (VoiceNote) -> Unit,  // Silme callback'i
+	private val onResumeClicked: (VoiceNote) -> Unit   // Resume callback'i
 ) : RecyclerView.Adapter<VoiceNoteAdapter.VoiceNoteViewHolder>() {
 
 	inner class VoiceNoteViewHolder(val binding: RecyclerRowBinding) :
