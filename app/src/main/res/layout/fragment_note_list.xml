@@ -29,8 +29,7 @@
         android:contentDescription="Ses Kaydet"
         android:clickable="true"
         android:focusable="true"
-        android:tint="#FAFAFA"
-        android:backgroundTint="#BB86FC"
+        android:background="@drawable/mic_button_background"
         app:srcCompat="@drawable/ic_baseline_mic_24"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>

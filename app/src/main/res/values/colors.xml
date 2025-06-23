@@ -2,4 +2,7 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <color name="colorPressed">#FF4081</color> <!-- Örnek pembe -->
+    <color name="colorNormal">#3F51B5</color> <!-- Örnek mavi -->
 </resources>

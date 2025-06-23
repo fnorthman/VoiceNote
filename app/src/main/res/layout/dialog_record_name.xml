@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="280dp"
+    android:layout_height="wrap_content"
+    android:background="@drawable/dialog_name_backgorund"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/dialogTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Kayıt İsmi Giriniz"
+        android:textAppearance="?attr/textAppearanceHeadline6"
+        android:textColor="#FFFFFF"
+        android:gravity="center"
+        android:paddingBottom="12dp" />
+
+    <EditText
+        android:id="@+id/editTextRecordName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Kayıt ismi"
+        android:textColor="#FFFFFF"
+        android:background="@android:color/transparent"
+        android:padding="8dp"
+        android:maxLines="1"
+        android:textColorHint="#BBBBBB" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingTop="24dp">
+
+        <Button
+            android:id="@+id/btnCancelRecordName"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="İptal"
+            android:textColor="#03DAC5"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="12dp"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btnSaveRecordName"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Kaydet"
+            android:textColor="#FF5252"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="12dp"
+            android:textAllCaps="false" />
+
+    </LinearLayout>
+</LinearLayout>
