@@ -25,6 +25,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.room.Room
+import com.ncorp.voicenote.animate.animateCardViewStroke
 import com.ncorp.voicenote.databinding.FragmentNoteListBinding
 import com.ncorp.voicenote.databinding.DialogRecordNameBinding
 import com.ncorp.voicenote.databinding.DialogDeleteConfirmationBinding
@@ -72,6 +73,8 @@ class NoteListFragment : Fragment() {
 		if (!checkNotificationPermission()) {
 			requestNotificationPermission()
 		}
+
+
 		db = Room.databaseBuilder(requireContext(), AppDatabase::class.java, "VoiceNotes.db").build()
 		binding.recordRecyclerView.layoutManager = LinearLayoutManager(requireContext())
 		getVoiceNotes()

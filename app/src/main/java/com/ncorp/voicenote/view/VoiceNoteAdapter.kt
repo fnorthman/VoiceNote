@@ -3,6 +3,7 @@ package com.ncorp.voicenote.view
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.ncorp.voicenote.animate.animateCardViewStroke
 import com.ncorp.voicenote.databinding.RecyclerRowBinding
 import com.ncorp.voicenote.model.VoiceNote
 
@@ -41,6 +42,10 @@ class VoiceNoteAdapter(
 		holder.binding.alarmButton.setOnClickListener { onAlarmClicked(item) }
 		holder.binding.stopButton.setOnClickListener { onStopClicked(item) }
 		holder.binding.deleteButton.setOnClickListener { onDeleteClicked(item) }
+
+		val cardView = holder.binding.myMaterialCardView
+		animateCardViewStroke(cardView)
+
 	}
 
 	// Payload ile kısmi güncelleme (ilerleme çubuğu ve süre)

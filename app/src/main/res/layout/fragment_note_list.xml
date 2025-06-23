@@ -34,4 +34,18 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
+    <!-- Created By Northman (Alt orta) -->
+    <TextView
+        android:id="@+id/createdByText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Created by Northman"
+        android:textColor="#888888"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-light"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginBottom="12dp"/>
+
 </androidx.constraintlayout.widget.ConstraintLayout>
